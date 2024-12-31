@@ -66,6 +66,7 @@ import org.apache.spark.sql.types.{
   ArrayType,
   BinaryType,
   BooleanType,
+  CharType,
   DataType,
   DatetimeType,
   DateType,
@@ -83,7 +84,8 @@ import org.apache.spark.sql.types.{
   StructType,
   TimestampNTZType,
   TimestampType,
-  TimestampTypeExpression
+  TimestampTypeExpression,
+  VarcharType
 }
 
 abstract class TypeCoercionHelper {
@@ -548,7 +550,10 @@ abstract class TypeCoercionHelper {
         val children: Seq[Expression] = e.children.zip(e.inputTypes).map {
           case (in, expected) =>
             // If we cannot do the implicit cast, just use the original input.
-            implicitCast(in, expected).getOrElse(in)
+            implicitCast(in, expected).map(expr => expr.dataType match {
+              case CharType(_) | VarcharType(_) => Cast(expr, StringType)
+              case _ => expr
+            }).getOrElse(in)
         }
         e.withNewChildren(children)
 

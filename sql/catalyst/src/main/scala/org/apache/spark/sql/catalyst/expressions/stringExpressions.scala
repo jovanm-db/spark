@@ -35,6 +35,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.Block._
 import org.apache.spark.sql.catalyst.expressions.objects.{Invoke, StaticInvoke}
 import org.apache.spark.sql.catalyst.trees.{BinaryLike, UnaryLike}
 import org.apache.spark.sql.catalyst.trees.TreePattern.{TreePattern, UPPER_OR_LOWER}
+import org.apache.spark.sql.catalyst.types.DataTypeUtils
 import org.apache.spark.sql.catalyst.util.{ArrayData, CharsetProvider, CollationFactory, CollationSupport, GenericArrayData, TypeUtils}
 import org.apache.spark.sql.errors.{QueryCompilationErrors, QueryExecutionErrors}
 import org.apache.spark.sql.internal.SQLConf
@@ -90,7 +91,8 @@ case class ConcatWs(children: Seq[Expression])
       Seq.fill(children.size - 1)(arrayOrStr)
   }
 
-  override def dataType: DataType = children.head.dataType
+  override def dataType: DataType =
+    DataTypeUtils.stringTypeWithoutConstraint(children.head.dataType)
 
   override def nullable: Boolean = children.head.nullable
   override def foldable: Boolean = children.forall(_.foldable)
@@ -285,7 +287,7 @@ case class ConcatWs(children: Seq[Expression])
 case class Elt(
     children: Seq[Expression],
     failOnError: Boolean = SQLConf.get.ansiEnabled) extends Expression
-  with SupportQueryContext {
+  with SupportQueryContext with ImplicitCastInputTypes {
 
   def this(children: Seq[Expression]) = this(children, SQLConf.get.ansiEnabled)
 
@@ -296,7 +298,14 @@ case class Elt(
   override def nullable: Boolean = true
 
   override def dataType: DataType =
-    inputExprs.map(_.dataType).headOption.getOrElse(SQLConf.get.defaultStringType)
+    inputExprs.map(_.dataType).map(DataTypeUtils.stringTypeWithoutConstraint)
+      .headOption.getOrElse(SQLConf.get.defaultStringType)
+
+  override def inputTypes: Seq[AbstractDataType] = IntegerType +:
+    Seq.fill(inputExprs.length)(TypeCollection(
+      StringTypeWithCollation(supportsTrimCollation = true),
+      BinaryType
+    ))
 
   override def checkInputDataTypes(): TypeCheckResult = {
     if (children.size < 2) {
@@ -437,7 +446,7 @@ trait String2StringExpression extends ImplicitCastInputTypes {
 
   def convert(v: UTF8String): UTF8String
 
-  override def dataType: DataType = child.dataType
+  override def dataType: DataType = DataTypeUtils.stringTypeWithoutConstraint(child.dataType)
   override def inputTypes: Seq[AbstractDataType] =
     Seq(StringTypeWithCollation(supportsTrimCollation = true))
 
@@ -800,7 +809,8 @@ case class MakeValidUTF8(input: Expression) extends RuntimeReplaceable with Impl
   with UnaryLike[Expression] {
   override def nullIntolerant: Boolean = true
 
-  override lazy val replacement: Expression = Invoke(input, "makeValid", input.dataType)
+  override lazy val replacement: Expression =
+    Invoke(input, "makeValid", DataTypeUtils.stringTypeWithoutConstraint(input.dataType))
 
   override def inputTypes: Seq[AbstractDataType] =
     Seq(StringTypeWithCollation(supportsTrimCollation = true))
@@ -845,7 +855,7 @@ case class ValidateUTF8(input: Expression) extends RuntimeReplaceable with Impli
   override lazy val replacement: Expression =
     StaticInvoke(
       classOf[ExpressionImplUtils],
-      input.dataType,
+      DataTypeUtils.stringTypeWithoutConstraint(input.dataType),
       "validateUTF8String",
       Seq(input),
       inputTypes)
@@ -897,7 +907,7 @@ case class TryValidateUTF8(input: Expression) extends RuntimeReplaceable with Im
   override lazy val replacement: Expression =
     StaticInvoke(
       classOf[ExpressionImplUtils],
-      input.dataType,
+      DataTypeUtils.stringTypeWithoutConstraint(input.dataType),
       "tryValidateUTF8String",
       Seq(input),
       inputTypes)
@@ -958,7 +968,7 @@ case class StringReplace(srcExpr: Expression, searchExpr: Expression, replaceExp
       CollationSupport.StringReplace.genCode(src, search, replace, collationId))
   }
 
-  override def dataType: DataType = srcExpr.dataType
+  override def dataType: DataType = DataTypeUtils.stringTypeWithoutConstraint(srcExpr.dataType)
   override def inputTypes: Seq[AbstractDataType] =
     Seq(
       StringTypeNonCSAICollation(supportsTrimCollation = true),
@@ -1041,7 +1051,7 @@ case class Overlay(input: Expression, replace: Expression, pos: Expression, len:
     this(str, replace, pos, Literal.create(-1, IntegerType))
   }
 
-  override def dataType: DataType = input.dataType
+  override def dataType: DataType = DataTypeUtils.stringTypeWithoutConstraint(input.dataType)
 
   override def inputTypes: Seq[AbstractDataType] = Seq(
     TypeCollection(
@@ -1218,7 +1228,7 @@ case class StringTranslate(srcExpr: Expression, matchingExpr: Expression, replac
     })
   }
 
-  override def dataType: DataType = srcExpr.dataType
+  override def dataType: DataType = DataTypeUtils.stringTypeWithoutConstraint(srcExpr.dataType)
   override def inputTypes: Seq[AbstractDataType] =
     Seq(
       StringTypeNonCSAICollation(supportsTrimCollation = true),
@@ -1722,7 +1732,7 @@ case class SubstringIndex(strExpr: Expression, delimExpr: Expression, countExpr:
   override def nullIntolerant: Boolean = true
   final lazy val collationId: Int = first.dataType.asInstanceOf[StringType].collationId
 
-  override def dataType: DataType = strExpr.dataType
+  override def dataType: DataType = DataTypeUtils.stringTypeWithoutConstraint(strExpr.dataType)
   override def inputTypes: Seq[AbstractDataType] =
     Seq(
       StringTypeNonCSAICollation(supportsTrimCollation = true),
@@ -1916,7 +1926,7 @@ case class StringLPad(str: Expression, len: Expression, pad: Expression)
   override def second: Expression = len
   override def third: Expression = pad
 
-  override def dataType: DataType = str.dataType
+  override def dataType: DataType = DataTypeUtils.stringTypeWithoutConstraint(str.dataType)
   override def inputTypes: Seq[AbstractDataType] =
     Seq(
       StringTypeWithCollation(supportsTrimCollation = true),
@@ -2003,7 +2013,7 @@ case class StringRPad(
   override def second: Expression = len
   override def third: Expression = pad
 
-  override def dataType: DataType = str.dataType
+  override def dataType: DataType = DataTypeUtils.stringTypeWithoutConstraint(str.dataType)
   override def inputTypes: Seq[AbstractDataType] =
     Seq(
       StringTypeWithCollation(supportsTrimCollation = true),
@@ -2051,7 +2061,7 @@ case class FormatString(children: Expression*) extends Expression with ImplicitC
 
   override def foldable: Boolean = children.forall(_.foldable)
   override def nullable: Boolean = children(0).nullable
-  override def dataType: DataType = children(0).dataType
+  override def dataType: DataType = DataTypeUtils.stringTypeWithoutConstraint(children(0).dataType)
 
   override def inputTypes: Seq[AbstractDataType] =
     StringTypeWithCollation(supportsTrimCollation = true) ::
@@ -2168,7 +2178,7 @@ case class InitCap(child: Expression)
 
   override def inputTypes: Seq[AbstractDataType] =
     Seq(StringTypeWithCollation(supportsTrimCollation = true))
-  override def dataType: DataType = child.dataType
+  override def dataType: DataType = DataTypeUtils.stringTypeWithoutConstraint(child.dataType)
 
   override def nullSafeEval(string: Any): Any = {
     CollationSupport.InitCap.exec(string.asInstanceOf[UTF8String], collationId, useICU)
@@ -2198,7 +2208,7 @@ case class StringRepeat(str: Expression, times: Expression)
   override def nullIntolerant: Boolean = true
   override def left: Expression = str
   override def right: Expression = times
-  override def dataType: DataType = str.dataType
+  override def dataType: DataType = DataTypeUtils.stringTypeWithoutConstraint(str.dataType)
   override def inputTypes: Seq[AbstractDataType] =
     Seq(
       StringTypeWithCollation(supportsTrimCollation = true),
@@ -2294,7 +2304,7 @@ case class Substring(str: Expression, pos: Expression, len: Expression)
     this(str, pos, Literal(Integer.MAX_VALUE))
   }
 
-  override def dataType: DataType = str.dataType
+  override def dataType: DataType = DataTypeUtils.stringTypeWithoutConstraint(str.dataType)
 
   override def inputTypes: Seq[AbstractDataType] =
     Seq(
@@ -2351,10 +2361,10 @@ case class Right(str: Expression, len: Expression) extends RuntimeReplaceable
 
   override lazy val replacement: Expression = If(
     IsNull(str),
-    Literal(null, str.dataType),
+    Literal(null, DataTypeUtils.stringTypeWithoutConstraint(str.dataType)),
     If(
       LessThanOrEqual(len, Literal(0)),
-      Literal(UTF8String.EMPTY_UTF8, str.dataType),
+      Literal(UTF8String.EMPTY_UTF8, DataTypeUtils.stringTypeWithoutConstraint(str.dataType)),
       new Substring(str, UnaryMinus(len))
     )
   )
@@ -3553,8 +3563,9 @@ case class Sentences(
   def this(str: Expression, language: Expression) = this(str, language, Literal(""))
 
   override def nullable: Boolean = true
-  override def dataType: DataType =
-    ArrayType(ArrayType(str.dataType, containsNull = false), containsNull = false)
+  override def dataType: DataType = ArrayType(
+    ArrayType(DataTypeUtils.stringTypeWithoutConstraint(str.dataType), containsNull = false),
+    containsNull = false)
   override def inputTypes: Seq[AbstractDataType] =
     Seq(
       StringTypeWithCollation(supportsTrimCollation = true),
@@ -3589,7 +3600,8 @@ case class Sentences(
 case class StringSplitSQL(
     str: Expression,
     delimiter: Expression) extends BinaryExpression {
-  override def dataType: DataType = ArrayType(str.dataType, containsNull = false)
+  override def dataType: DataType =
+    ArrayType(DataTypeUtils.stringTypeWithoutConstraint(str.dataType), containsNull = false)
   final lazy val collationId: Int = left.dataType.asInstanceOf[StringType].collationId
   override def left: Expression = str
   override def right: Expression = delimiter

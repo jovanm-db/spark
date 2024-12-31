@@ -920,6 +920,30 @@ class BasicCharVarcharTestSuite extends QueryTest with SharedSparkSession {
       }
     }
   }
+
+  test("postgresql differences") {
+    def f(): Unit = {
+      val df = sql(
+      s"""
+         |select
+         |'X' || '5'::char(5) || 'X',
+         |length('5'::char(5)),
+         |upper('a'::char(5)),
+         |length(upper('a'::char(5))),
+         |'"' || upper('a'::char(5)) || '"',
+         |replace('abc', 'ab'::char(5), 'x'),
+         |translate('abc', 'ab'::char(5), 'xy')
+      """.stripMargin)
+      print(df.schema)
+      print('\n')
+      df.show()
+    }
+
+    f()
+    withSQLConf((SQLConf.PRESERVE_CHAR_VARCHAR_TYPE_INFO.key, "true")) {
+      f()
+    }
+  }
 }
 
 class FileSourceCharVarcharTestSuite extends CharVarcharTestSuite with SharedSparkSession {

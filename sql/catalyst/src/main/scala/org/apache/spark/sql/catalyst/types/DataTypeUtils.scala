@@ -249,5 +249,10 @@ object DataTypeUtils {
     case v: Long => fromDecimal(Decimal(BigDecimal(v)))
     case _ => forType(literal.dataType)
   }
+
+  def stringTypeWithoutConstraint(dt: DataType): DataType = dt match {
+    case s: StringType => StringType(s.collationId)
+    case t => t
+  }
 }
 
