@@ -19,11 +19,13 @@ package org.apache.spark.sql.catalyst.analysis
 
 import org.apache.spark.sql.catalyst.expressions.{
   Abs,
+  BinaryComparison,
   BinaryOperator,
   Cast,
   DateAdd,
   DateSub,
   Expression,
+  In,
   Literal,
   SubtractDates,
   SubtractTimestamps,
@@ -31,6 +33,7 @@ import org.apache.spark.sql.catalyst.expressions.{
   UnaryMinus,
   UnaryPositive
 }
+import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.{
   AnsiIntervalType,
   AtomicType,
@@ -54,6 +57,14 @@ import org.apache.spark.sql.types.{
  */
 object AnsiStringPromotionTypeCoercion {
   def apply(expression: Expression): Expression = expression match {
+    case b @ BinaryComparison(StringTypeExpression(), StringTypeExpression())
+      if SQLConf.get.preserveCharVarcharTypeInfo =>
+      b.withNewChildren(AnsiTypeCoercion.padStringLiteralsInComparison(b.children))
+
+    case i @ In(StringTypeExpression(), list) if SQLConf.get.preserveCharVarcharTypeInfo &&
+      list.forall(_.dataType.isInstanceOf[StringType]) =>
+      i.withNewChildren(AnsiTypeCoercion.padStringLiteralsInComparison(i.children))
+
     case b @ BinaryOperator(left, right)
         if findWiderTypeForString(left.dataType, right.dataType).isDefined =>
       val promoteType = findWiderTypeForString(left.dataType, right.dataType).get

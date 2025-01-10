@@ -27,8 +27,10 @@ import org.apache.spark.sql.catalyst.expressions.{
   Concat,
   Elt,
   Expression,
+  Literal,
   MapZipWith,
   Stack,
+  StringRPad,
   WindowSpecDefinition
 }
 import org.apache.spark.sql.catalyst.plans.logical.{
@@ -42,7 +44,8 @@ import org.apache.spark.sql.catalyst.plans.logical.{
 }
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.connector.catalog.procedures.BoundProcedure
-import org.apache.spark.sql.types.DataType
+import org.apache.spark.sql.types.{CharType, DataType}
+import org.apache.spark.unsafe.types.UTF8String
 
 abstract class TypeCoercionBase extends TypeCoercionHelper {
 
@@ -383,6 +386,28 @@ abstract class TypeCoercionBase extends TypeCoercionHelper {
       // Skip nodes who's children have not been resolved yet.
       case e if !e.childrenResolved => e
       case withChildrenResolved => StringLiteralTypeCoercion(withChildrenResolved)
+    }
+  }
+
+  def padStringLiteralsInComparison(exprs: Seq[Expression]): Seq[Expression] = {
+    val lengths = exprs.map {
+      case Cast(_, CharType(length), _, _) => length
+      case StringRPad(_, length, _) => length.eval().asInstanceOf[Int]
+      case e if e.dataType.isInstanceOf[CharType] =>
+        e.dataType.asInstanceOf[CharType].length
+      case e if e.foldable =>
+        val t = e.eval().asInstanceOf[UTF8String]
+        if (t == null) 0 else t.numChars()
+      case _ => 0
+    }
+    val length = lengths.max
+    exprs.zip(lengths).map {
+      case (e, l) =>
+        if (l < length) {
+          StringRPad(e, Literal(length))
+        } else {
+          e
+        }
     }
   }
 }
